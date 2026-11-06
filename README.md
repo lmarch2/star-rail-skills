@@ -4,7 +4,7 @@
 
 | 技能 | 用途 |
 | --- | --- |
-| [treasure-opening ZIP](treasure-opening.zip) | 指定区域宝箱与特殊寻宝目标：地图定位、路线移动、交互与收集核验。路线跑完不等于全图收集完成。 |
+| [treasure-opening ZIP](treasure-opening.zip) | 指定区域宝箱与特殊寻宝目标：地图定位、路线移动、交互与收集核验 |
 | [star-rail-permanent-events ZIP](star-rail-permanent-events.zip) | 常驻活动、常时传略与往期活动：入口定位、剧情与玩法推进、领奖及完成核验。纯日常清体力使用三月七小助手技能。 |
 
 ## 安装
