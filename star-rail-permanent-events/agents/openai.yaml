@@ -1,0 +1,4 @@
+interface:
+  display_name: "星铁常驻活动完成"
+  short_description: "定位并完成星铁常驻活动，高效推进剧情与玩法，领取奖励并核验进度"
+  default_prompt: "使用 $star-rail-permanent-events 完成我指定的星铁常驻活动，按阶段复用自动化、高效推进，并领取和核验对应奖励。"
