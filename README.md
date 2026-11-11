@@ -13,11 +13,11 @@
 
 也可单独下载整包：[宝箱技能 ZIP](treasure-opening.zip)、[活动技能 ZIP](star-rail-permanent-events.zip)，解压后按同样方式安装。
 
-两个技能可以分别安装；活动涉及探索时会复用宝箱技能，建议一起安装。
+两个技能相互引用控制参考与探索能力，请一起安装。
 
 ## 运行依赖
 
-- 需要安装并配置 `march7th-assistant` 技能，以及可运行的 Windows 游戏环境和适配的三月七小助手源码环境。[三月七小助手上游仓库](https://github.com/moesnow/March7thAssistant)。本仓库不包含该依赖技能或完整游戏自动化运行环境。
+- 需要安装并配置最新版 `march7th-assistant` 技能，以及可运行的 Windows 游戏环境和适配的三月七小助手源码环境。[三月七小助手上游仓库](https://github.com/moesnow/March7thAssistant)。该技能需包含 `references/star-rail-wiki.md`、`references/star-rail-wiki-index.md` 和 `scripts/search_wiki.py` 等 Wiki 查询配套文件。本仓库不包含该依赖技能或完整游戏自动化运行环境。
 - 使用源码环境已有的 Python 和依赖。技能引用的地图定位、路线、OCR 及控制能力以实际源码版本为准；源码中的新能力不保证上游已发布安装版已有。
 - 活动技能的控制脚本依赖三月七小助手仓库及其运行环境，不是可独立执行的程序。具体启动方式见 [常驻会话说明](star-rail-permanent-events/references/session-control.md)。
 - 新版小助手支持用户在「设置 → 杂项」开启「免 UAC 运行」。`m7a.exe --status` 返回 `elevation: task` 时，官方任务和流程无需重复确认；`uac` 才需要用户确认。该功能只对对应安装生效，不自动覆盖直接运行的 Python 活动控制器；控制器优先复用已有会话。

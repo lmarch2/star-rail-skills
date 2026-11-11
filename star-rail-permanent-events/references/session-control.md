@@ -21,11 +21,13 @@ $eventClient = Join-Path $eventScripts 'session_request.py'
 
 先区分官方任务与本脚本：新版小助手的 `m7a.exe --status` 返回 `elevation: task` 时，官方任务和流程会复用用户开启的 `March7thAssistantNoUAC`，不再请求 UAC；开关用法见 `march7th-assistant` 技能。该计划任务只启动对应安装的小助手，不是任意 Python 脚本的启动接口。
 
-本脚本直接使用源码环境的 `start_as_admin`，不会因为安装版开启免 UAC 就自动免提权。已有常驻会话应直接复用；确需新建且当前进程未提权时，会使用隐藏窗口请求一次正常提权，出现真实 UAC 才请用户确认。不要另建提权任务或修改现有计划任务来运行本脚本。
+本脚本直接使用源码环境的 `start_as_admin`，不会因为安装版开启免 UAC 就自动免提权。已有常驻会话已加载本次所需能力和修复时直接复用；确需新建且当前进程未提权时，会使用隐藏窗口请求一次正常提权，出现真实 UAC 才请用户确认。不要另建提权任务或修改现有计划任务来运行本脚本。
 
-多个会话共享同一游戏时，先等当前控制者释放控制权，再接续同一会话；持锁只证明控制器存活，不代表当前轮到自己使用。新版 `--status` 返回 `owner`、`phase`、`active_request` 和 `last_request`，可在控制器忙碌时直接查询，不排队、不激活游戏。`controller` 包含版本、支持动作、启动时间和已加载脚本的 SHA-256；`script_matches:false` 表示磁盘上的控制脚本与运行版本不同。该哈希只覆盖控制脚本，依赖模块修改后仍需重启。已加载所需能力的控制器可直接交接，避免相邻实测之间反复关闭、启动游戏和请求 UAC。磁盘脚本的新动作不会自动进入已运行进程；必须使用新增动作时，在上一轮释放控制后正常停止旧进程并启动新版。
+多个会话共享同一游戏时，先等当前控制者释放控制权，再接续同一会话；持锁只证明控制器存活，不代表当前轮到自己使用。新版 `--status` 返回 `owner`、`phase`、`active_request` 和 `last_request`，可在控制器忙碌时直接查询，不排队、不激活游戏。`controller` 包含版本、支持动作、启动时间和已加载脚本的 SHA-256；`script_matches:false` 表示磁盘上的控制脚本与运行版本不同。该哈希只覆盖 `event_session.py`；即使为 true，也不能证明 `utils/navigation_map.py` 等已导入依赖已加载磁盘上的修复。修改本次需用的控制脚本或依赖后，按[收尾与退出](#收尾与退出)正常 stop，再正常启动、核对版本并验证修复；不能热加载正在控制游戏的进程。能力和依赖未变时可直接交接，无需反复启动。
 
 ## 提交、观察与接续
+
+会话目录的 `requests\<编号>.json` 与 `responses\<编号>\`（时间戳、动作序列、OCR 文本、截图）可直接审计执行者的实际操作：在不触碰游戏、不读取执行代理上下文的前提下判断其是否推进（例如是否陷入同构请求循环），据此决定纠正或更换执行者。
 
 将请求保存为 UTF-8 JSON 文件，然后提交一次：
 
@@ -33,7 +35,7 @@ $eventClient = Join-Path $eventScripts 'session_request.py'
 & $eventPython $eventClient --session $eventSession --owner "本轮唯一标记" --file '实际请求文件.json' --compact
 ```
 
-版本 2 首次输入前单独提交 `{"action":"claim"}`，客户端的 `--owner` 为该请求及后续输入提供同一标记。已被其他标记占用时返回 `rejected`，不停止对方剧情或释放对方输入。交接时由当前 owner 单独提交 `{"action":"release"}`：停止剧情、释放按键，返回 `input_released:true` 并清空 owner；下一控制者确认响应完成后再 claim。观察、地图定位与 status 不需要 owner；输入、剧情开关、启动及停止控制器必须匹配 owner。不同会话目录之间仍应只运行一个游戏控制器。
+版本 2 及以后首次输入前单独提交 `{"action":"claim"}`，客户端的 `--owner` 为该请求及后续输入提供同一标记。已被其他标记占用时返回 `rejected`，不停止对方剧情或释放对方输入。交接时由当前 owner 单独提交 `{"action":"release"}`：停止剧情、释放按键，返回 `input_released:true` 并清空 owner；下一控制者确认响应完成后再 claim。观察、地图定位与 status 不需要 owner；输入、剧情开关、启动及停止控制器必须匹配 owner。不同会话目录之间仍应只运行一个游戏控制器。
 
 常用请求：
 
@@ -52,12 +54,16 @@ $eventClient = Join-Path $eventScripts 'session_request.py'
 | 释放控制权并释放输入 | `{"action":"release"}` |
 | 查询控制器状态，不激活游戏 | `{"action":"status"}` |
 | 结束本轮控制，不激活游戏 | `{"action":"stop"}` |
+
 | 启动游戏并进入可操作状态，单独提交 | `{"action":"start_game","ocr":false}` |
+| 无预录路线，直接到地图目标 | `{"action":"navigate_target","target":[0.58,0.52],"target_floor":"2F","observe":false}` |
 | 沿已标定路线到达指定点位 | `{"action":"navigate","route":"assets/treasure_routes/life_sciences_institute/ecopark-south.json","target":"4741","observe":false}` |
 
-批次使用 `{"actions":[...],"ocr":false}`，末尾观察一次；绝对坐标点击、拖动等还需在批次前截图更新坐标，纯按键、移动与相对转镜头无需这次截图。后续立即还有已确定动作时可用 `"observe":false` 省掉末尾截图与 OCR；未知路线的移动仍保留末尾观察。示例中的时长和镜头增量只作起点，按当前环境校准。
+接口字段实测注意：`key` 动作的按键字段名是 `key`（写成 `name` 会报 Unknown action）；`scroll` 的 `direction` 语义随当前界面——地图内为缩放、大世界为镜头俯仰；`screen` 动作格式为 `{"action":"screen","target":"map"}`。
 
-`navigate` 复用同一进程内的 `TreasureGame` 和地图定位器，载入普通点位路线，执行准备步骤、区域和起点核验，再依序走到 `target`。目标必须存在于路线中；不接受任意步骤切片，不支持巡回扫描路线。结果在 `actions` 中返回 `navigation_status: arrived`、目标和耗时；导航不调用开箱，也不证明活动或奖励完成。角色、镜头、楼层和分辨率仍须符合路线标定条件。
+批次使用 `{"actions":[...],"ocr":false}`，末尾观察一次；`observe`、`ocr` 是请求级选项，动作内部同名字段不产生中间观察。为定位而开图必须单独观察，不能立即关图再拿末尾画面判断位置。绝对坐标点击、拖动等还需在批次前截图更新坐标，纯按键、移动与相对转镜头无需这次截图。后续立即还有已确定动作时可用 `"observe":false` 省掉末尾截图与 OCR；未知路线的移动仍保留末尾观察。示例中的时长和镜头增量只作起点，按当前环境校准。
+
+旧接口 `navigate(route,target_id)` 复用同一进程内的 `TreasureGame` 和地图定位器，载入普通点位路线，执行准备步骤、区域和起点核验，再依序走到 `target`。目标必须存在于路线中；不接受任意步骤切片，不支持巡回扫描路线。结果在 `actions` 中返回 `navigation_status: arrived`、目标和耗时；导航不调用开箱，也不证明活动或奖励完成。角色、镜头、楼层和分辨率仍须符合路线标定条件。
 
 主界面与地图之间的 `screen` 切换每次按键后最多等待 4 秒。开图超时且重新确认仍在主界面时，只补按一次地图键；未知界面、再次超时或退出地图失败均停止并返回错误，不重复按 Esc。其他界面沿用小助手的界面管理器。
 
@@ -65,11 +71,31 @@ $eventClient = Join-Path $eventScripts 'session_request.py'
 
 手动输入会停止自动剧情，且不会在批次结束后自行恢复；返回剧情阶段时显式发送 `plot` 开启指令。旧会话尚未采用该行为时，先显式关闭剧情再接管特殊玩法。普通战斗仍需从画面确认自动与加速已打开。输入动作可加 `wait` 等待界面变化；等待时间按阶段选择，避免长时间阻塞调用。
 
-客户端默认等 25 秒。返回 `pending` 时保留 `request` 编号，用 `--result 0001` 查询同一请求，**不能重新提交相同动作**。结果中的 `image`、`texts` 和 `records` 对应该请求的执行后状态；`--compact` 仅省略终端中的文字坐标，完整记录仍在会话目录。新进程遇到上一轮未完成的请求会标记 `interrupted`，先观察现状再决定下一步，不自动重放输入。
+客户端默认等 25 秒。返回 `pending` 时保留 `request` 编号，用 `--result 0001` 查询同一请求，**不能重新提交相同动作**。客户端会在原等待期限内重读发布中的结果文件，处理短暂的共享访问失败、替换间隙或不完整 JSON；这类读取竞态不代表动作失败。结果中的 `image`、`texts` 和 `records` 对应该请求的执行后状态；`--compact` 仅省略终端中的文字坐标，完整记录仍在会话目录。新进程遇到上一轮未完成的请求会标记 `interrupted`，先观察现状再决定下一步，不自动重放输入。长导航提交一次即可；返回 `pending` 后用同一编号查询。版本 3 的 pending 输出包含 worker 的 `phase/active_request/last_request/updated_at`，当前请求正在执行时另带 `navigation` 位置进展；无需反复启动后台 shell 或重发导航。
+
+工作进程发布 `ready.json` 时，对Windows短暂文件共享冲突只有限重试原子替换，不重新执行游戏动作。持续拒绝仍返回真实错误；先看请求实际移动与输入状态，再决定恢复，不把文件发布失败当成需要重放输入。
 
 请求文件由客户端在短文件锁内分配新编号并原子提交，避免并发客户端覆盖请求；已提交文件不可改写。同一进程记住已处理编号，空闲时只检查请求目录是否变化，避免随历史记录增加而反复扫描所有结果。查询结果继续使用 `--result`。
 
-兼容接续旧会话时，以其现有脚本能力为准：旧版可能没有 `status` 动作与 `observe:false`，但可以用新入口的 `--status` 查存活，并用客户端发送原有的截图、点击与剧情操作。为保留本轮授权，不为新增可选功能专门重启旧进程；新会话自然使用更新后的脚本。
+兼容接续旧会话时，以其已加载能力为准：旧版可能没有 `status` 动作与 `observe:false`，但可以用新入口的 `--status` 查存活，并用客户端发送原有的截图、点击与剧情操作。仅缺可选功能时无需专门重启；本次依赖的修复或失败诊断未加载时，按正常停止、启动流程换版。
+
+## 直接指定地图目标
+
+版本 3 新增 `navigate_target`，调用源码的 `TreasureGame.navigate`，不需要预录路线、底图或方向：
+
+```json
+{"action":"navigate_target","target":[0.58,0.52],"target_floor":"2F","observe":false}
+```
+
+示例坐标不是实际任务目标。先单独开图并观察，核对任务目标和实际楼层，按 `x/1920、y/1080` 换算地图全画面坐标；关图回主界面后提交，期间不要移动、拖图或缩放。`target_floor` 使用实际目标层，不猜楼层。截图来自缩略图时先换算回原图。
+
+复用仓库 `navigate` 步骤参数校验，支持 `tracking:"auto"`、`map_reference`、`target_space:"map"`、已知 `level_connections` 和 `visual_fallback` 等现有选项；默认大地图定位。目标本来就是缓存地图坐标时必须带对应 `map_reference`，不要将旧坐标当作新截图坐标。
+
+成功返回 `actions[].navigation_status:"arrived"` 和完整 `navigation`；导航未到达时外层 `status:"error"`，保留本次 `navigation.status`、位置、轨迹及楼层证据，并终止该批次后续动作。初始化失败可能还没有 navigation 结果，以 `error` 为准。到点不等于交互或活动完成。
+
+执行中的 `--status` / `ready.json` 提供当前请求的简短 `navigation` 和 `updated_at`，不输出整段轨迹、不增加截图。状态 `busy` 表示有动作在执行；`idle` 加上请求编号长期不变，说明没有新游戏操作，不能继续汇报正在寻路。位置进展以 `position_confirmed`、`position`、`moves` 和任务目标变化为准。
+
+旧版 2 没有该动作时，可以通过已加载的 `treasure_action` 执行 `{"action":"treasure_action","step":{"type":"navigate","target":[0.58,0.52],"target_floor":"2F"},"observe":false}`，同样复用通用导航；旧版结果不提供新版进展与完整失败证据。必须获得新版反馈或加载导航修复时，按[收尾与退出](#收尾与退出)停止旧控制器，再正常启动新版，不能把磁盘代码视为进程已加载。
 
 ## 路线诊断入口
 
@@ -79,6 +105,7 @@ $eventClient = Join-Path $eventScripts 'session_request.py'
 
 ## 收尾与退出
 
+- `stop` 要求当前 owner 匹配，并在退出时停止剧情、释放输入和清空控制权。本轮要结束控制器时，由持权者直接单独提交 `stop`；只交接而继续保留进程时才用 `release`。已经 release 且 owner 为 null 时，先重新 claim 再 stop；不得接管仍由其他执行者持有的会话。
 - 用户要求关闭游戏时，先保存已确认的完成状态，停止自动剧情并释放按键，再发送游戏的正常关闭操作。退出动作使用当前接口支持的 `observe:false`，避免游戏已关闭后仍等待截图；最后发送独立的 `stop` 请求结束本轮控制器。
 - 关闭游戏后的核验改用对应进程是否退出、控制器状态或退出记录。不要为确认退出继续截图、激活窗口或重新启动游戏。工具超时可能发生在动作后的观察环节，先检查进程，不能直接重发退出动作。
 - 自建或修改控制器时，让 `status`、`stop` 在游戏窗口检查、输入准备和截图之前处理；退出路径释放按键、停止自动剧情并清理本轮资源，即使游戏窗口已消失也能完成。不要把畸形请求或故意触发异常当作正常退出协议。

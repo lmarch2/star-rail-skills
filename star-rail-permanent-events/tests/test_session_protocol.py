@@ -1,6 +1,9 @@
+import io
 import json
+import runpy
 import subprocess
 import sys
+from contextlib import redirect_stdout
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -60,3 +63,33 @@ def test_concurrent_clients_keep_all_requests(tmp_path):
     assert len(set(ids)) == 12
     requests = [json.loads(p.read_text(encoding='utf-8')) for p in (tmp_path / 'requests').glob('*.json')]
     assert {r['owner'] for r in requests} == {f'client-{i}' for i in range(12)}
+
+
+@pytest.mark.parametrize('error', [
+    PermissionError('sharing violation'),
+    FileNotFoundError('result replacement in progress'),
+    json.JSONDecodeError('incomplete result', '', 0),
+])
+def test_result_publication_race_is_retried_without_resubmitting(tmp_path, monkeypatch, error):
+    result = tmp_path / 'responses' / '0001' / 'result.json'
+    result.parent.mkdir(parents=True)
+    result.write_text('{"status":"ok","request":"0001"}', encoding='utf-8')
+    original_read = Path.read_text
+    reads = []
+
+    def read_with_race(path, *args, **kwargs):
+        if path == result:
+            reads.append(path)
+            if len(reads) == 1:
+                raise error
+        return original_read(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'read_text', read_with_race)
+    monkeypatch.setattr(sys, 'argv', [str(SCRIPTS / 'session_request.py'), '--session', str(tmp_path),
+                                    '--result', '0001', '--timeout', '1'])
+    output = io.StringIO()
+    with redirect_stdout(output):
+        runpy.run_path(str(SCRIPTS / 'session_request.py'), run_name='__main__')
+    assert json.loads(output.getvalue()) == {'status': 'ok', 'request': '0001'}
+    assert len(reads) == 2
+    assert not list((tmp_path / 'requests').iterdir())

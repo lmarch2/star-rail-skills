@@ -9,8 +9,8 @@ from pathlib import Path
 import sys
 import time
 
-CONTROLLER_VERSION = 2
-CONTROLLER_ACTIONS = ("claim", "release", "status", "stop", "snapshot", "wait", "start_game", "navigate",
+CONTROLLER_VERSION = 3
+CONTROLLER_ACTIONS = ("claim", "release", "status", "stop", "snapshot", "wait", "start_game", "navigate", "navigate_target",
                       "treasure_steps", "treasure_action", "treasure_open", "map_locate", "plot", "camera", "physical",
                       "key", "move", "click", "drag", "scroll", "screen")
 SCRIPT_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
@@ -134,19 +134,36 @@ controller = {"version": CONTROLLER_VERSION, "actions": CONTROLLER_ACTIONS,
               "script": str(Path(__file__).resolve())}
 control_owner = None
 last_request = None
+navigation_progress = None
 
 
 def publish_state(phase="idle", active_request=None):
     state = {"pid": os.getpid(), "root": str(ROOT), "canvas": [1920, 1080], "controller": controller,
              "owner": control_owner, "phase": phase, "active_request": active_request,
-             "last_request": last_request, "plot": plot_wanted}
+             "last_request": last_request, "plot": plot_wanted,
+             "updated_at": datetime.now(timezone.utc).isoformat(), "navigation": navigation_progress}
     ready = SESSION / "ready.tmp"
     ready.write_text(json.dumps(state), encoding="utf-8")
-    ready.replace(SESSION / "ready.json")
+    for attempt in range(7):
+        try:
+            ready.replace(SESSION / "ready.json")
+            break
+        except PermissionError:
+            if attempt == 6:
+                raise
+            time.sleep(.05)
     return state
 
 
 publish_state()
+
+
+def publish_navigation(evidence):
+    global navigation_progress
+    navigation_progress = {key: value for key, value in evidence.items() if key in (
+        "status", "position", "target", "moves", "position_confirmed", "replans", "blocked_segments",
+        "arrival_verified", "map_reference", "scope", "target_floor", "total_seconds")}
+    publish_state("busy", path.stem)
 
 
 def wait(seconds):
@@ -233,6 +250,13 @@ def execute(action):
         result = run_route(route, get_route_game(), auto.logger.info,
                            navigate_to=str(action["target"]))
         return {**result, "elapsed_seconds": round(time.monotonic() - started, 3)}
+    elif kind == "navigate_target":
+        from utils.treasure_route import _steps
+        step = _steps([dict(action, type="navigate")], ROOT, setup=True)[0]
+        started = time.monotonic()
+        result = get_route_game().navigate(step, on_progress=publish_navigation)
+        return {"navigation_status": result["status"], "navigation": result,
+                "elapsed_seconds": round(time.monotonic() - started, 3)}
     elif kind == "map_locate":
         game = get_route_game()
         locator = game._map_locator({"image": str(ROOT / action["image"]),
@@ -360,6 +384,7 @@ try:
         path = pending.pop()
         output = responses / path.stem
         output.mkdir(exist_ok=True)
+        navigation_progress = None
         publish_state("busy", path.stem)
         result = {"status": "ok", "request": path.stem, "controller": controller}
         request = {}
@@ -367,6 +392,7 @@ try:
         capture_failed = False
         profile = None
         balloon_before = getattr(route_game, "last_balloon_result", None)
+        navigation_before = getattr(route_game, "last_navigation_result", None)
         request_started = time.perf_counter()
         try:
             request = json.loads(path.read_text(encoding="utf-8-sig"))
@@ -375,7 +401,7 @@ try:
             actions = request.get("actions", [request])
             if actions is None:
                 actions = [request]
-            manual = any(a.get("action", a.get("type")) in ("key", "click", "drag", "move", "scroll", "screen", "camera", "physical", "navigate", "start_game", "treasure_steps", "treasure_action", "treasure_open") for a in actions)
+            manual = any(a.get("action", a.get("type")) in ("key", "click", "drag", "move", "scroll", "screen", "camera", "physical", "navigate", "navigate_target", "start_game", "treasure_steps", "treasure_action", "treasure_open") for a in actions)
             control_only = all(a.get("action", a.get("type")) in ("status", "stop", "claim", "release") for a in actions)
             starting_game = any(a.get("action", a.get("type")) == "start_game" for a in actions)
             if starting_game and len(actions) != 1:
@@ -464,6 +490,11 @@ try:
                     result.update(observe(output, {"ocr": False}))
                 except Exception as capture_error:
                     result["capture_error"] = str(capture_error)
+        navigation_result = getattr(route_game, "last_navigation_result", None)
+        if navigation_result is not None and navigation_result is not navigation_before:
+            result["navigation"] = navigation_result
+        result["completed_at"] = datetime.now(timezone.utc).isoformat()
+        result["elapsed_seconds"] = round(time.perf_counter() - request_started, 3)
         if profile is not None:
             result["profile_ms"] = {**profile, **result.get("profile_ms", {}),
                                      "request_ms": round((time.perf_counter() - request_started) * 1000, 1)}
@@ -472,7 +503,8 @@ try:
         temporary_result.write_text(json.dumps(result, ensure_ascii=False, default=lambda value: value.tolist()), encoding="utf-8")
         temporary_result.replace(output / "result.json")
         completed_requests.add(path.name)
-        last_request = {"request": path.stem, "status": result["status"]}
+        last_request = {"request": path.stem, "status": result["status"],
+                        "completed_at": result["completed_at"]}
         publish_state()
 finally:
     plot.stop()

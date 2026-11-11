@@ -7,10 +7,23 @@ description: 在《崩坏：星穹铁道》中复用三月七小助手和现有�
 
 目标是完成用户指定区域或目标中的实际收集，并用游戏内计数或奖励状态核验。不要把执行完一条路线等同于全图收集完成。
 
+## 操作前必读
+
+实际探索或收集宝箱前，执行者必须在首次游戏操作前完整读取一次 [控制与效率参考](../star-rail-permanent-events/references/control-and-efficiency.md)，提前掌握输入校准、本地定位、路线执行与卡点处理。由子代理执行时，交接中明确要求该子代理先读，再开始操作。同一任务已读过且内容仍在上下文中时不重复全文读取，遇到具体问题再回查相关章节。
+
+浏览器自动化或截图密集的环节必须交给子代理完成，按 [子代理分工](../march7th-assistant/SKILL.md#子代理分工) 交接目标、进度与控制入口。主代理负责协调和汇总，子代理负责执行与完成核验；同一游戏窗口只由一个代理控制。
+
+## 执行前先查 Wiki
+
+开始收集前，必须读取并执行 [星铁 Wiki 查询](../march7th-assistant/references/star-rail-wiki.md)，从用户指定的米游社 Wiki 详细查清目标区域的点位图、楼层、路线、前置、机关解法与计数口径，再结合游戏进度选择路线。执行中对可达路径、特殊目标交互或遗漏原因不确定时，先回查该 Wiki 的图文步骤和解决方法，再继续移动或交互。
+
+- 先读 [Wiki 使用索引](../march7th-assistant/references/star-rail-wiki-index.md) 的“宝箱与地图直达”，用 [本地搜索脚本](../march7th-assistant/scripts/search_wiki.py) 搜区域/分区名并加 `--json`，如 `"生研院" --json`；脚本路径相对本 `SKILL.md` 解析为绝对路径后调用。使用结果中的原页面、分区名与 `images` 定位相关配图，不整份加载索引或全部地图图片。
+- 阅读目标分区的图示，核对地图形态、楼层、机关和计数口径，再映射到当前游戏；Wiki 图片坐标不能直接作为游戏屏幕坐标。无匹配时尝试正式名称、简称或所属区域，再查实时 Wiki；新地图与旧资料冲突时补查。页面空白时按使用索引中的公开只读接口读取对应分区和图片链接。
+
 ## 复用现有能力
 
 - 涉及小助手安装、版本、活动任务、运行控制或 OCR 命令时，先使用 `march7th-assistant` 技能。检查 `--status` 与活动任务，避免重复启动；官方任务通过 `m7a.exe` 运行，`elevation: task` 时复用用户已开启的免 UAC，无需再请求确认。源码里的新能力不一定存在于已安装版本；安装版的免 UAC 不自动适用于另一个源码目录或直接启动的 Python 控制器。
-- 在源码仓库工作时，先看 `assets/docs/Treasure.md`（使用方式与限制）、`tasks/exploration/treasure.py`（开箱确认）和 `utils/treasure_map.py`（SIFT 定位与航点移动）。优先复用现有 `treasure` / `treasure_nearby`、记录路线、地图定位、OCR 和开箱确认；不要另写一套已有功能。
+- 在源码仓库工作时，先看 `assets/docs/Treasure.md`（使用方式与限制）、`tasks/exploration/navigation.py`（无预录路线导航）和 `tasks/exploration/treasure.py`（导航共用入口与开箱确认）。普通地图目标优先使用常驻会话的 `navigate_target`，无需预先录制底图、方向与整条路线；旧 `map_move` / `utils/treasure_map.py` 用于已有标定数据。接口见 [直接指定地图目标](../star-rail-permanent-events/references/session-control.md#直接指定地图目标)，导航依赖修改后的重载按该参考的“启动与复用”处理，不能把控制脚本哈希一致当作依赖修复已加载。
 - 先记录游戏地图上的总数和分类进度，再选现成路线。路线执行成功只说明该路线步骤完成；Fhoe-Rail 巡回也不保证覆盖全部宝箱。按用户目标补查遗漏，并保留 `opened`、`unresolved`、`pending` 的实际状态。
 
 当前路线验证结果查 `assets/treasure_routes/life_sciences_institute/README.md`，当前问题查 `docs/星铁导航卡点.md`；不把历史失败或缺少新箱正样本当作当前阻塞。实际开箱仍按下述奖励与交互状态确认。

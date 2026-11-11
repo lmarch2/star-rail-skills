@@ -49,8 +49,9 @@ while True:
     if response.exists():
         try:
             result = json.loads(response.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            pass  # Older workers write in place; wait for the write to finish.
+        except (json.JSONDecodeError, PermissionError, FileNotFoundError):
+            # The worker may still be publishing this result; never replay input.
+            pass
     if result is not None or time.monotonic() >= deadline:
         break
     time.sleep(.1)
@@ -59,4 +60,12 @@ if result is not None:
         result.pop("records", None)
     print(json.dumps(result, ensure_ascii=True))
 else:
-    print(json.dumps({"status": "pending", "request": request_id, "result": str(response)}))
+    pending = {"status": "pending", "request": request_id, "result": str(response)}
+    ready = session / "ready.json"
+    if ready.exists():
+        state = json.loads(ready.read_text(encoding="utf-8"))
+        pending["worker"] = {key: state.get(key) for key in (
+            "phase", "active_request", "last_request", "updated_at")}
+        if state.get("active_request") == request_id:
+            pending["navigation"] = state.get("navigation")
+    print(json.dumps(pending, ensure_ascii=True))
